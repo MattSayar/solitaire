@@ -27,7 +27,7 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putBoolean("fourColor", v).apply()
 
     var autoFoundation: Boolean
-        get() = sp.getBoolean("autoFoundation", true)
+        get() = sp.getBoolean("autoFoundation", false)
         set(v) = sp.edit().putBoolean("autoFoundation", v).apply()
 
     var showTimer: Boolean

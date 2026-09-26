@@ -1,66 +1,96 @@
 package com.mattsayar.solitaire
 
-import android.content.Context
 import android.media.AudioAttributes
-import android.media.SoundPool
-import java.io.File
-import java.io.FileOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import android.media.AudioFormat
+import android.media.AudioTrack
+import android.os.Build
 import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.sin
 
 /**
- * Tiny sound engine. Effects are synthesised once into WAV files in the cache directory (no binary
- * assets in the repo) and played through a low-latency SoundPool.
+ * Tiny sound engine. Effects are synthesised into memory at startup (no binary assets in the repo)
+ * and preloaded into static low-latency AudioTracks, so a cue plays the instant it's triggered.
  */
-class Sounds(private val context: Context) {
+class Sounds {
 
     enum class Fx { PLACE, FLIP, DRAW, INVALID, WIN, SHUFFLE, UNDO }
 
     var enabled = true
 
-    private val pool: SoundPool = SoundPool.Builder()
-        .setMaxStreams(6)
-        .setAudioAttributes(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_GAME)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-        )
-        .build()
+    private val sr = 44100
 
-    private val ids = IntArray(Fx.values().size)
-    @Volatile private var ready = false
+    /** Two voices per effect so rapid repeats (auto-finish) can overlap instead of cutting each other off. */
+    @Volatile private var voices: Array<Array<AudioTrack>>? = null
+    private val nextVoice = IntArray(Fx.values().size)
+    @Volatile private var released = false
 
     init {
+        // Synthesis takes a few ms; do it off the main thread so startup stays instant.
         Thread {
-            val dir = File(context.cacheDir, "sfx-v1").apply { mkdirs() }
-            for (fx in Fx.values()) {
-                val f = File(dir, "${fx.name.lowercase()}.wav")
-                if (!f.exists() || f.length() < 64) writeWav(f, synth(fx))
-                ids[fx.ordinal] = pool.load(f.path, 1)
+            val built = Array(Fx.values().size) { i ->
+                val pcm = synth(Fx.values()[i])
+                Array(2) { track(pcm) }
             }
-            ready = true
+            synchronized(this) {
+                if (released) built.forEach { v -> v.forEach { it.release() } } else voices = built
+            }
         }.apply { priority = Thread.MIN_PRIORITY }.start()
     }
 
-    fun play(fx: Fx, volume: Float = 1f, rate: Float = 1f) {
-        if (!enabled || !ready) return
-        val v = when (fx) {
-            Fx.WIN -> 0.8f
-            Fx.INVALID -> 0.55f
-            else -> 0.7f
-        } * volume
-        pool.play(ids[fx.ordinal], v, v, 1, 0, rate)
+    private fun track(pcm: ShortArray): AudioTrack {
+        val builder = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sr)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+            )
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .setBufferSizeInBytes(pcm.size * 2)
+        if (Build.VERSION.SDK_INT >= 26) builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+        return builder.build().also { it.write(pcm, 0, pcm.size) }
     }
 
-    fun release() = pool.release()
+    fun play(fx: Fx, volume: Float = 1f, rate: Float = 1f) {
+        if (!enabled) return
+        val all = voices ?: return
+        val v = when (fx) {
+            Fx.WIN -> 0.8f
+            Fx.INVALID -> 0.6f
+            else -> 0.75f
+        } * volume
+        val slot = nextVoice[fx.ordinal]
+        nextVoice[fx.ordinal] = (slot + 1) % 2
+        val t = all[fx.ordinal][slot]
+        try {
+            if (t.state != AudioTrack.STATE_INITIALIZED) return
+            t.stop()
+            t.reloadStaticData() // rewind to the start of the static buffer
+            t.playbackRate = (sr * rate).toInt()
+            t.setVolume(v)
+            t.play()
+        } catch (_: IllegalStateException) {
+            // A track can be invalidated by the audio server (e.g. output device change); skip this cue.
+        }
+    }
+
+    fun release() {
+        synchronized(this) {
+            released = true
+            voices?.forEach { v -> v.forEach { it.release() } }
+            voices = null
+        }
+    }
 
     // ------------------------------------------------------------------ synthesis
-
-    private val sr = 44100
 
     private fun synth(fx: Fx): ShortArray = when (fx) {
         Fx.PLACE -> render(0.07) { t, rnd -> noise(rnd) * exp(-t * 90) * 0.55 + sin(2 * PI * 170 * t) * exp(-t * 60) * 0.6 }
@@ -113,16 +143,5 @@ class Sounds(private val context: Context) {
             data[i] = y.toInt().toShort()
         }
         return data
-    }
-
-    private fun writeWav(file: File, pcm: ShortArray) {
-        val dataLen = pcm.size * 2
-        val buf = ByteBuffer.allocate(44 + dataLen).order(ByteOrder.LITTLE_ENDIAN)
-        buf.put("RIFF".toByteArray()).putInt(36 + dataLen).put("WAVE".toByteArray())
-        buf.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(1)
-            .putInt(sr).putInt(sr * 2).putShort(2).putShort(16)
-        buf.put("data".toByteArray()).putInt(dataLen)
-        for (s in pcm) buf.putShort(s)
-        FileOutputStream(file).use { it.write(buf.array()) }
     }
 }

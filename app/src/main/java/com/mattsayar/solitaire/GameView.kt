@@ -306,14 +306,14 @@ class GameView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
         val slack = bottomY - (insetTop + max(pad, 4 * density)) - needed
         topY = insetTop + max(pad, 4 * density) + max(0f, slack * 0.8f)
         tabY = topY + ch + rowGap
-        wasteFan = cw * 0.36f
+        wasteFan = cw * 0.32f
 
         if (leftHanded) {
-            place(STOCK, 0); place(WASTE, 1)
+            place(STOCK, 0)
             for (f in 0 until 4) place(Piles.foundation(f), 3 + f)
         } else {
             for (f in 0 until 4) place(Piles.foundation(f), f)
-            place(WASTE, 4); place(STOCK, 6)
+            place(STOCK, 6) // waste is positioned relative to the stock in computeTargets()
         }
         for (i in 0 until 7) {
             pileX[Piles.tableau(i)] = colX[i]; pileY[Piles.tableau(i)] = tabY
@@ -341,7 +341,12 @@ class GameView @JvmOverloads constructor(context: Context, attrs: AttributeSet? 
                 setTarget(pile[i], pileX[p], pileY[p], p != STOCK, base + i, p, i)
             }
         }
-        // Waste: in draw-3 the top three are fanned.
+        // Waste: hugs the stock (fanning towards it) so there's clear space between it and the
+        // foundations and a flipped card never reads as part of them. In draw-3 the top three fan out.
+        val maxFan = if (g.drawCount == 3) 2 * wasteFan else 0f
+        pileX[WASTE] = if (leftHanded) pileX[STOCK] + cw + gap * 1.5f
+        else pileX[STOCK] - gap * 1.5f - cw - maxFan
+        pileY[WASTE] = pileY[STOCK]
         val waste = g.pile(WASTE)
         val fanned = if (g.drawCount == 3) min(3, waste.size) else min(1, waste.size)
         val firstFan = waste.size - fanned

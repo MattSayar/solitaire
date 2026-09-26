@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -50,7 +51,8 @@ class MainActivity : Activity(), GameView.Listener {
     private lateinit var sheet: FrameLayout
     private lateinit var winLayer: FrameLayout
     private lateinit var undoButton: View
-    private lateinit var hintButton: View
+    private lateinit var hintButton: ImageButton
+    private lateinit var handButton: LinearLayout
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -77,7 +79,9 @@ class MainActivity : Activity(), GameView.Listener {
         goEdgeToEdge()
         setContentView(R.layout.activity_main)
         prefs = Prefs(this)
-        sounds = Sounds(applicationContext).apply { enabled = prefs.sound }
+        sounds = Sounds().apply { enabled = prefs.sound }
+        // Hardware volume keys adjust game audio (not the ringer) while the app is open.
+        volumeControlStream = AudioManager.STREAM_MUSIC
 
         root = view<FrameLayout>(R.id.root)
         gameView = view<GameView>(R.id.game)
@@ -85,6 +89,7 @@ class MainActivity : Activity(), GameView.Listener {
         modeView = view<TextView>(R.id.mode)
         statsView = view<TextView>(R.id.stats)
         soundButton = view<ImageButton>(R.id.sound)
+        hintButton = view<ImageButton>(R.id.hint)
         toolbar = view<LinearLayout>(R.id.toolbar)
         autoFinish = view<TextView>(R.id.autoFinish)
         toast = view<TextView>(R.id.toast)
@@ -98,6 +103,7 @@ class MainActivity : Activity(), GameView.Listener {
         styleChrome()
 
         modeView.setOnClickListener { showNewGameSheet() }
+        hintButton.setOnClickListener { haptic(HapticFeedbackConstants.VIRTUAL_KEY); gameView.showHint() }
         soundButton.setOnClickListener {
             prefs.sound = !prefs.sound
             sounds.enabled = prefs.sound
@@ -318,6 +324,7 @@ class MainActivity : Activity(), GameView.Listener {
             toolbar.layoutDirection = if (prefs.leftHanded) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
         }
         if (::soundButton.isInitialized) updateSoundIcon()
+        if (::handButton.isInitialized) updateHandButton()
     }
 
     private fun updateChrome() {
@@ -327,7 +334,7 @@ class MainActivity : Activity(), GameView.Listener {
         undoButton.isEnabled = canUndo
         undoButton.animate().alpha(if (canUndo) 1f else 0.4f).setDuration(120).start()
         hintButton.isEnabled = !game.isWon
-        hintButton.alpha = if (game.isWon) 0.4f else 1f
+        hintButton.alpha = if (game.isWon) 0.35f else 1f
         if (gameView.canAutoComplete()) showAutoFinish() else hideAutoFinish()
     }
 
@@ -355,6 +362,14 @@ class MainActivity : Activity(), GameView.Listener {
         autoFinish.elevation = 8 * dp
         autoFinish.setCompoundDrawablesRelativeWithIntrinsicBounds(tinted(R.drawable.ic_auto, color(R.color.on_accent)), null, null, null)
         updateSoundIcon()
+        hintButton.setImageResource(R.drawable.ic_hint)
+        hintButton.imageTintList = ColorStateList.valueOf(color(R.color.text))
+    }
+
+    private fun updateHandButton() {
+        (handButton.getChildAt(1) as TextView).text = if (prefs.leftHanded) "Left hand" else "Right hand"
+        handButton.contentDescription = if (prefs.leftHanded) "Left-handed layout. Tap to switch to right-handed"
+        else "Right-handed layout. Tap to switch to left-handed"
     }
 
     private fun buildToolbar() {
@@ -363,8 +378,13 @@ class MainActivity : Activity(), GameView.Listener {
         toolbar.addView(toolButton(R.drawable.ic_new, "New", 1f) { showNewGameSheet() }.also {
             it.setOnLongClickListener { haptic(HapticFeedbackConstants.LONG_PRESS); newGame(game.drawCount); true }
         })
-        hintButton = toolButton(R.drawable.ic_hint, "Hint", 1f) { gameView.showHint() }
-        toolbar.addView(hintButton)
+        handButton = toolButton(R.drawable.ic_swap, "Right hand", 1f) {
+            prefs.leftHanded = !prefs.leftHanded
+            applySettings()
+            showToast(if (prefs.leftHanded) "Left-handed layout" else "Right-handed layout")
+        } as LinearLayout
+        toolbar.addView(handButton)
+        updateHandButton()
         undoButton = toolButton(R.drawable.ic_undo, "Undo", 1.35f, primary = true) { gameView.undo() }
         toolbar.addView(undoButton)
         installRepeatingUndo(undoButton)
@@ -531,14 +551,20 @@ class MainActivity : Activity(), GameView.Listener {
     private fun showSettingsSheet() {
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(title("Settings"))
-        col.addView(switchRow("Sound effects", prefs.sound) {
-            prefs.sound = it; sounds.enabled = it; updateSoundIcon(); if (it) sounds.play(Sounds.Fx.PLACE)
-        })
-        col.addView(switchRow("Vibration", prefs.haptics) { prefs.haptics = it; if (it) haptic(HapticFeedbackConstants.VIRTUAL_KEY) })
-        col.addView(switchRow("Left-handed layout", prefs.leftHanded) { prefs.leftHanded = it; applySettings() })
-        col.addView(switchRow("Auto-play safe cards to foundations", prefs.autoFoundation) { prefs.autoFoundation = it; applySettings() })
-        col.addView(switchRow("Four-colour suits", prefs.fourColor) { prefs.fourColor = it; applySettings() })
-        col.addView(switchRow("Show timer, moves & score", prefs.showTimer) { prefs.showTimer = it; updateStats() })
+        val rows = listOf(
+            switchRow("Sound effects", prefs.sound) {
+                prefs.sound = it; sounds.enabled = it; updateSoundIcon(); if (it) sounds.play(Sounds.Fx.PLACE)
+            },
+            switchRow("Vibration", prefs.haptics) { prefs.haptics = it; if (it) haptic(HapticFeedbackConstants.VIRTUAL_KEY) },
+            switchRow("Left-handed layout", prefs.leftHanded) { prefs.leftHanded = it; applySettings() },
+            switchRow("Auto-play safe cards to foundations", prefs.autoFoundation) { prefs.autoFoundation = it; applySettings() },
+            switchRow("Four-colour suits", prefs.fourColor) { prefs.fourColor = it; applySettings() },
+            switchRow("Show timer, moves & score", prefs.showTimer) { prefs.showTimer = it; updateStats() },
+        )
+        rows.forEachIndexed { i, row ->
+            if (i > 0) col.addView(divider())
+            col.addView(row)
+        }
         col.addView(title("Statistics").apply { setPadding(0, (18 * dp).toInt(), 0, (6 * dp).toInt()) })
         col.addView(statsTable())
         var armed = false
@@ -687,6 +713,12 @@ class MainActivity : Activity(), GameView.Listener {
         setTint(color)
         val s = (22 * dp).toInt()
         setBounds(0, 0, s, s)
+    }
+
+    /** Hairline separator between settings rows. */
+    private fun divider() = View(this).apply {
+        setBackgroundColor(0x1FFFFFFF)
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxOf(1, (0.75f * dp).toInt()))
     }
 
     private fun title(text: String) = TextView(this).apply {

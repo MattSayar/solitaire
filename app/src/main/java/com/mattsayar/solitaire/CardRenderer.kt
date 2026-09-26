@@ -114,19 +114,15 @@ class CardRenderer {
         val cx = rect.centerX() - big / 2
         val cy = rect.top + cardH * 0.58f - big / 2
         if (rank >= 11) {
-            val frame = RectF(rect.left + cardW * 0.14f, rect.top + cardH * 0.30f, rect.right - cardW * 0.14f, rect.bottom - cardH * 0.08f)
-            val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = LinearGradient(0f, frame.top, 0f, frame.bottom, 0xFFFBEFC8.toInt(), 0xFFF0D98F.toInt(), Shader.TileMode.CLAMP)
+            // Illustrated portrait in a gold-bordered panel below the index.
+            val inset = cardW * 0.09f
+            val frame = RectF(rect.left + inset, rect.top + cardW * 0.44f, rect.right - inset, rect.bottom - inset)
+            val r = corner * 0.6f
+            FaceArt.draw(canvas, rank, suit, color, frame, r)
+            val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE; strokeWidth = maxOf(1.5f, cardW * 0.022f); this.color = 0xFFC9A13B.toInt()
             }
-            canvas.drawRoundRect(frame, corner * 0.6f, corner * 0.6f, framePaint)
-            framePaint.shader = null
-            framePaint.style = Paint.Style.STROKE
-            framePaint.strokeWidth = cardW * 0.025f
-            framePaint.color = 0xFFC9A13B.toInt()
-            canvas.drawRoundRect(frame, corner * 0.6f, corner * 0.6f, framePaint)
-            drawSuit(canvas, suit, cx + big * 0.2f, cy + big * 0.2f, big * 0.6f, (color and 0x00FFFFFF) or 0x40000000)
-            val face = Paint(text).apply { textSize = cardW * 0.46f; textAlign = Paint.Align.CENTER; textScaleX = 1f }
-            canvas.drawText(label, frame.centerX(), frame.centerY() + face.textSize * 0.36f, face)
+            canvas.drawRoundRect(frame, r, r, border)
         } else {
             drawSuit(canvas, suit, cx, cy, big, color)
         }

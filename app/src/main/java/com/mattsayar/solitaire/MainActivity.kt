@@ -48,7 +48,7 @@ class MainActivity : Activity(), GameView.Listener {
     private lateinit var autoFinish: TextView
     private lateinit var toast: TextView
     private lateinit var scrim: View
-    private lateinit var sheet: FrameLayout
+    private lateinit var sheet: SwipeDismissLayout
     private lateinit var winLayer: FrameLayout
     private lateinit var undoButton: View
     private lateinit var hintButton: ImageButton
@@ -94,7 +94,9 @@ class MainActivity : Activity(), GameView.Listener {
         autoFinish = view<TextView>(R.id.autoFinish)
         toast = view<TextView>(R.id.toast)
         scrim = view<View>(R.id.scrim)
-        sheet = view<FrameLayout>(R.id.sheet)
+        sheet = view<SwipeDismissLayout>(R.id.sheet)
+        sheet.onDismiss = { hideSheet() }
+        sheet.onDrag = { f -> scrim.alpha = 1f - f }
         winLayer = view<FrameLayout>(R.id.win)
 
         gameView.listener = this
@@ -502,6 +504,7 @@ class MainActivity : Activity(), GameView.Listener {
         scrim.alpha = 0f
         scrim.animate().alpha(1f).setDuration(200).start()
         sheet.translationY = root.height.toFloat()
+        sheet.animate().setUpdateListener(null)
         sheet.animate().translationY(0f).setDuration(260).setInterpolator(DecelerateInterpolator(2.2f)).start()
         sheetOpen = true
     }

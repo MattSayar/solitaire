@@ -154,6 +154,25 @@ class KlondikeTest {
     }
 
     @Test
+    fun tappingBasedKingMovesItAndItsRunToAnEmptyColumn() {
+        val g = position(
+            tableau = listOf(
+                listOf(c(SPADES, 13), c(HEARTS, 12), c(CLUBS, 11)), listOf(c(DIAMONDS, 5)),
+                listOf(), listOf(c(CLUBS, 5)), listOf(), listOf(), listOf()
+            )
+        )
+        val from = Piles.tableau(0)
+        // First empty column after the source, so repeated taps walk through the empty spots.
+        assertEquals(listOf(Piles.tableau(2)), g.targetsFor(from, 0))
+        assertTrue(g.move(from, 0, Piles.tableau(2)))
+        assertEquals(0, g.pile(from).size)
+        assertEquals(listOf(c(SPADES, 13), c(HEARTS, 12), c(CLUBS, 11)), g.pile(Piles.tableau(2)).toList())
+        assertEquals(listOf(Piles.tableau(4)), g.targetsFor(Piles.tableau(2), 0))
+        // Hints still never suggest shuffling a based king between empty columns.
+        assertTrue(g.hints().none { it.from == Piles.tableau(2) && it.index == 0 })
+    }
+
+    @Test
     fun autoCompleteFinishesWhenAllFaceUp() {
         val g = position(
             tableau = listOf(

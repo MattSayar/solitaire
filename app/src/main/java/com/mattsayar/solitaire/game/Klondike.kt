@@ -209,9 +209,9 @@ class Klondike private constructor(val drawCount: Int, val seed: Long, state: St
                 if (firstEmpty < 0) firstEmpty = t
             } else out.add(t)
         }
-        // Moving a king that already sits at the base of a column to another empty column is pointless.
-        val kingAlreadyBased = isTableau(from) && index == 0
-        if (firstEmpty >= 0 && !kingAlreadyBased) out.add(firstEmpty)
+        // Includes kings already at the base of a column: the player asked for it, so honour the tap.
+        // (hints() never suggests that shuffle.)
+        if (firstEmpty >= 0) out.add(firstEmpty)
         return out
     }
 
